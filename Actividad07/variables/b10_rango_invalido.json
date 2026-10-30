@@ -1,0 +1,10 @@
+{
+  "input": {
+    "accountId": "ID_REAL_DE_CUENTA",
+    "conceptId": "ID_REAL_DE_CONCEPTO",
+    "transactionType": "EXPENSE",
+    "amount": "10.00",
+    "transactionDate": "2026-10-27T12:00:00Z",
+    "shortDescription": "Prueba B05: operación del 27 capturada después"
+  }
+}

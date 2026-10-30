@@ -569,7 +569,7 @@ class Query:
             )
             for membership in memberships
         ]
-
+    
 
     
 # --- MUTATIONS ---

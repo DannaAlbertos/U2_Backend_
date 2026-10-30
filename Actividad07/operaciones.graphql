@@ -1,0 +1,32 @@
+# B05: registra un movimiento cuya operación ocurrió antes de capturarse.
+mutation CrearMovimientoConFechaOperacion($input: CreateTransactionInput!) {
+  createTransaction(input: $input) {
+    id
+    transactionDate
+    capturedAt
+    transactionType
+    amount
+    shortDescription
+  }
+}
+
+# B04: consultar movimientos frontera por fecha mediante el balance.
+query BalanceFronteras($accountId: ID!, $fromDate: Date!, $toDate: Date!) {
+  accountBalance(accountId: $accountId, fromDate: $fromDate, toDate: $toDate) {
+    accountId
+    accountName
+    openingBalance
+    totalIncome
+    totalExpense
+    profit
+    closingBalance
+  }
+}
+
+# B10: usar deliberadamente un rango inválido para comprobar el error.
+query RangoInvalido($accountId: ID!, $fromDate: Date!, $toDate: Date!) {
+  accountBalance(accountId: $accountId, fromDate: $fromDate, toDate: $toDate) {
+    accountId
+    closingBalance
+  }
+}
