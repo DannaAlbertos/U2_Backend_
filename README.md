@@ -8,8 +8,8 @@ Puedes consultar el reporte detallado con la matriz de pruebas, las capturas de 
 
 [Ver documento de evidencias PDF de ACTIVIDAD 6](./Actividad06-JWT%20Tokens/EvidenciaAct6.pdf)
 
----
-## 👥 Integrantes del Equipo
+--- 
+## Integrantes del Equipo
 * Albertos Sosa Danna Pamela
 * Cetzal Cetzal Astrit Airan
 * Díaz Anduze Giovana Ruby
