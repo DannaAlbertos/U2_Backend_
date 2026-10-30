@@ -4,3 +4,4 @@
 venv/
 .venv/
 *.db
+__init__/
