@@ -2,11 +2,15 @@ from fastapi import FastAPI, Depends, Request, HTTPException
 import strawberry
 from strawberry.fastapi import GraphQLRouter
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, date, timezone
 from sqlalchemy.orm import Session
 from jose import jwt, JWTError
 import bcrypt
 from decimal import Decimal
+from app.fechas import (
+    normalizar_datetime_utc, ahora_utc_naive, fecha_utc_para_respuesta,
+    limites_periodo_utc,
+)
 from app.database import engine, Base, get_db, SessionLocal
 import app.models as models
 from app.seguridad import leer_actor, crear_token
@@ -224,6 +228,33 @@ class Transaction:
     concept: Concept
     capturedByUser: User
 @strawberry.type
+class AccountBalance:
+    accountId: strawberry.ID
+    accountName: str
+    isActive: bool
+    openingBalance: Decimal
+    totalIncome: Decimal
+    totalExpense: Decimal
+    profit: Decimal
+    closingBalance: Decimal
+    isInRed: bool
+
+@strawberry.type
+class GeneralBalance:
+    companyId: strawberry.ID
+    currency: str
+    fromDate: date
+    toDate: date
+    openingBalance: Decimal
+    totalIncome: Decimal
+    totalExpense: Decimal
+    profit: Decimal
+    closingBalance: Decimal
+    isInRed: bool
+    accountsInRed: int
+    accounts: List[AccountBalance]
+
+@strawberry.type
 class AuthPayload:
     token: str
     tokenType: str
@@ -341,8 +372,8 @@ def transaction_to_gql(t: models.Transaction) -> Transaction:
     return Transaction(
         id=t.id, accountId=t.account_id, conceptId=t.concept_id,
         transactionType=TransactionType(t.transaction_type.value),
-        amount=t.amount, transactionDate=t.transaction_date,
-        capturedAt=t.captured_at, capturedBy=t.captured_by,
+        amount=t.amount, transactionDate=fecha_utc_para_respuesta(t.transaction_date),
+        capturedAt=fecha_utc_para_respuesta(t.captured_at), capturedBy=t.captured_by,
         shortDescription=t.short_description, longDescription=t.long_description,
         isActive=t.is_active, createdAt=t.created_at, updatedAt=t.updated_at,
         account=account_to_gql(t.account), concept=concept_to_gql(t.concept),
@@ -449,6 +480,99 @@ def aplicar_permisos_rol(db: Session, role_id, permission_ids, antes_commit=None
 # --- QUERIES ---
 @strawberry.type
 class Query:
+    @strawberry.field
+    def accountBalance(
+        self,
+        info: strawberry.Info,
+        accountId: strawberry.ID,
+        fromDate: date,
+        toDate: date,
+    ) -> AccountBalance:
+        db = info.context["db"]
+        actor = leer_actor(db, info)
+        exigir_permiso(db, actor["company_user"].id, "accounts.read")
+        exigir_permiso(db, actor["company_user"].id, "transactions.read")
+
+        inicio_utc, fin_exclusivo_utc = limites_periodo_utc(fromDate, toDate)
+        cuenta = db.query(models.Account).filter(
+            models.Account.id == int(accountId),
+            models.Account.company_id == int(actor["company_id"]),
+        ).first()
+        if cuenta is None:
+            raise Exception("Cuenta no disponible")
+
+        # El integrante 2 implementa estas funciones en app/balances.py.
+        # Importación local para que el resto de la API siga iniciando mientras
+        # el servicio centralizado se integra.
+        from app.balances import calcular_balance_cuenta
+        resultado = calcular_balance_cuenta(
+            db=db,
+            company_id=int(actor["company_id"]),
+            account_id=int(cuenta.id),
+            inicio_utc=inicio_utc,
+            fin_exclusivo_utc=fin_exclusivo_utc,
+        )
+        return AccountBalance(
+            accountId=cuenta.id,
+            accountName=cuenta.name,
+            isActive=cuenta.is_active,
+            openingBalance=resultado["opening_balance"],
+            totalIncome=resultado["total_income"],
+            totalExpense=resultado["total_expense"],
+            profit=resultado["profit"],
+            closingBalance=resultado["closing_balance"],
+            isInRed=resultado["closing_balance"] < Decimal("0.00"),
+        )
+
+    @strawberry.field
+    def generalBalance(
+        self,
+        info: strawberry.Info,
+        fromDate: date,
+        toDate: date,
+    ) -> GeneralBalance:
+        db = info.context["db"]
+        actor = leer_actor(db, info)
+        exigir_permiso(db, actor["company_user"].id, "accounts.read")
+        exigir_permiso(db, actor["company_user"].id, "transactions.read")
+
+        inicio_utc, fin_exclusivo_utc = limites_periodo_utc(fromDate, toDate)
+        from app.balances import calcular_balance_general
+        resultado = calcular_balance_general(
+            db=db,
+            company_id=int(actor["company_id"]),
+            inicio_utc=inicio_utc,
+            fin_exclusivo_utc=fin_exclusivo_utc,
+        )
+        cuentas = [
+            AccountBalance(
+                accountId=cuenta["account_id"],
+                accountName=cuenta["account_name"],
+                isActive=cuenta["is_active"],
+                openingBalance=cuenta["opening_balance"],
+                totalIncome=cuenta["total_income"],
+                totalExpense=cuenta["total_expense"],
+                profit=cuenta["profit"],
+                closingBalance=cuenta["closing_balance"],
+                isInRed=cuenta["closing_balance"] < Decimal("0.00"),
+            )
+            for cuenta in resultado["accounts"]
+        ]
+        return GeneralBalance(
+            companyId=actor["company_id"],
+            currency="MXN",
+            fromDate=fromDate,
+            toDate=toDate,
+            openingBalance=resultado["opening_balance"],
+            totalIncome=resultado["total_income"],
+            totalExpense=resultado["total_expense"],
+            profit=resultado["profit"],
+            closingBalance=resultado["closing_balance"],
+            isInRed=resultado["closing_balance"] < Decimal("0.00"),
+            accountsInRed=sum(1 for cuenta in cuentas if cuenta.closingBalance < Decimal("0.00")),
+            accounts=cuentas,
+        )
+
     @strawberry.field
     def accounts(self, info: strawberry.Info, companyId: strawberry.ID, accountType: Optional[AccountType] = None, activeOnly: Optional[bool] = None) -> List[Account]:
         db = info.context["db"]
@@ -816,7 +940,28 @@ class Mutation:
         # Validación: Tipo compatible
 
         if input.transactionType.value != concept.concept_type.value: raise Exception("El tipo de movimiento debe ser compatible con el tipo de concepto.")
-        db_t = models.Transaction(account_id=input.accountId, concept_id=input.conceptId, transaction_type=input.transactionType.value, amount=input.amount, transaction_date=input.transactionDate or datetime.utcnow(), captured_by=user.id, short_description=input.shortDescription, long_description=input.longDescription)
+        # capturedAt siempre lo genera el servidor. La BD conserva UTC naive.
+        captured_at_utc = ahora_utc_naive()
+        try:
+            transaction_date_utc = (
+                normalizar_datetime_utc(input.transactionDate)
+                if input.transactionDate is not None
+                else captured_at_utc
+            )
+        except ValueError as exc:
+            raise Exception(str(exc)) from exc
+
+        db_t = models.Transaction(
+            account_id=input.accountId,
+            concept_id=input.conceptId,
+            transaction_type=input.transactionType.value,
+            amount=input.amount,
+            transaction_date=transaction_date_utc,
+            captured_at=captured_at_utc,
+            captured_by=user.id,
+            short_description=input.shortDescription,
+            long_description=input.longDescription,
+        )
         db.add(db_t)
         db.commit()
         db.refresh(db_t)
