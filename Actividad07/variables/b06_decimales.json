@@ -1,0 +1,5 @@
+{
+  "a": { "accountId": "3", "conceptId": "1", "transactionType": "INCOME",  "amount": "0.10", "transactionDate": "2026-10-27T12:00:00Z" },
+  "b": { "accountId": "3", "conceptId": "1", "transactionType": "INCOME",  "amount": "0.20", "transactionDate": "2026-10-27T12:00:00Z" },
+  "c": { "accountId": "3", "conceptId": "2", "transactionType": "EXPENSE", "amount": "0.30", "transactionDate": "2026-10-27T12:00:00Z" }
+}

@@ -30,3 +30,117 @@ query RangoInvalido($accountId: ID!, $fromDate: Date!, $toDate: Date!) {
     closingBalance
   }
 }
+
+
+# =====================================================================
+# PARTE 4 - Seguridad, aislamiento y evidencias (B01, B04, B06, B11-B14)
+# Orden sugerido: python -m app.seed  ->  Login  ->  copiar el token a la
+# pestaña Headers de GraphiQL:  {"Authorization": "Bearer <TOKEN>"}
+# =====================================================================
+
+# Login (admin: p4_login_admin.json | consulta: p4_login_consulta.json)
+mutation Login($input: LoginInput!) {
+  login(input: $input) {
+    token
+    tokenType
+    user { id name email }
+  }
+}
+
+# B01 / B02 / B11 / B12 / B13 / B14: balance de UNA cuenta
+query BalanceCuenta($accountId: ID!, $fromDate: Date!, $toDate: Date!) {
+  accountBalance(accountId: $accountId, fromDate: $fromDate, toDate: $toDate) {
+    accountId
+    accountName
+    isActive
+    openingBalance
+    totalIncome
+    totalExpense
+    profit
+    closingBalance
+    isInRed
+  }
+}
+
+# B01 / B11 / B12 / B13 / B14: balance general de la empresa
+query BalanceGeneral($fromDate: Date!, $toDate: Date!) {
+  generalBalance(fromDate: $fromDate, toDate: $toDate) {
+    companyId
+    currency
+    fromDate
+    toDate
+    openingBalance
+    totalIncome
+    totalExpense
+    profit
+    closingBalance
+    isInRed
+    accountsInRed
+    accounts {
+      accountId
+      accountName
+      isActive
+      openingBalance
+      totalIncome
+      totalExpense
+      profit
+      closingBalance
+      isInRed
+    }
+  }
+}
+
+# B04: cuatro movimientos en las fronteras del periodo (una sola petición)
+mutation B04Fronteras(
+  $a: CreateTransactionInput!, $b: CreateTransactionInput!,
+  $c: CreateTransactionInput!, $d: CreateTransactionInput!
+) {
+  antes_del_inicio: createTransaction(input: $a) { id amount transactionDate }
+  inicio_del_periodo: createTransaction(input: $b) { id amount transactionDate }
+  fin_del_dia_30: createTransaction(input: $c) { id amount transactionDate }
+  medianoche_del_31: createTransaction(input: $d) { id amount transactionDate }
+}
+
+# B06: 0.10 + 0.20 de ingreso y 0.30 de egreso (precisión Decimal)
+mutation B06Decimales(
+  $a: CreateTransactionInput!, $b: CreateTransactionInput!, $c: CreateTransactionInput!
+) {
+  ingreso_010: createTransaction(input: $a) { id amount transactionType }
+  ingreso_020: createTransaction(input: $b) { id amount transactionType }
+  egreso_030: createTransaction(input: $c) { id amount transactionType }
+}
+
+# B13: intento de captura con el rol CONSULTA (debe fallar)
+mutation CapturaConsulta($input: CreateTransactionInput!) {
+  createTransaction(input: $input) {
+    id
+    amount
+    transactionDate
+  }
+}
+
+# B14: ver y cambiar los permisos del rol CONSULTA (se ejecuta con el token del ADMIN)
+query Roles {
+  roles { id code name }
+}
+
+query Permisos {
+  permissions { id code }
+}
+
+query PermisosDelRol($roleId: ID!) {
+  rolePermissions(roleId: $roleId) {
+    isActive
+    permission { id code }
+  }
+}
+
+mutation CambiarPermisosDelRol($input: SetRolePermissionsInput!) {
+  setRolePermissions(input: $input) {
+    role { code }
+    activated { code }
+    deactivated { code }
+    finalCount
+    changed
+  }
+}

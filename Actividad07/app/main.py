@@ -264,8 +264,11 @@ class AccountBalance:
 
 
 @strawberry.type
-class CompanyBalance:
+class GeneralBalance:
     companyId: strawberry.ID
+    currency: str
+    fromDate: date
+    toDate: date
     openingBalance: Decimal
     totalIncome: Decimal
     totalExpense: Decimal
@@ -426,18 +429,20 @@ def balance_to_gql(f: dict) -> AccountBalance:
     )
 
 
-def resolver_balance_general(info, fromDate: date, toDate: date) -> CompanyBalance:
+def resolver_balance_general(info, fromDate: date, toDate: date) -> GeneralBalance:
     """Lógica común de generalBalance y de su alias companyBalance."""
     db = info.context["db"]
     actor = leer_actor(db, info)
-    exigir_permiso(db, actor["company_user"].id, "accounts.read")
-    exigir_permiso(db, actor["company_user"].id, "transactions.read")
+    exigir_permisos_balance(db, actor["company_user"].id)
     try:
         r = calcular_balance_general(db, int(actor["company_id"]), fromDate, toDate)
     except ValueError as e:
         raise Exception(str(e))
-    return CompanyBalance(
+    return GeneralBalance(
         companyId=str(r["companyId"]),
+        currency="MXN",
+        fromDate=fromDate,
+        toDate=toDate,
         openingBalance=r["openingBalance"],
         totalIncome=r["income"],
         totalExpense=r["expense"],
@@ -474,6 +479,11 @@ def exigir_permiso(db: Session, company_user_id: int, codigo: str) -> None:
     )
     if permitido is None:
         raise Exception(f"El rol no tiene el permiso {codigo}")
+
+def exigir_permisos_balance(db: Session, company_user_id: int) -> None:
+    """Los balances exigen AMBOS permisos de lectura (se consultan en cada petición)."""
+    exigir_permiso(db, company_user_id, "accounts.read")
+    exigir_permiso(db, company_user_id, "transactions.read")
 
 
 def aplicar_permisos_rol(db: Session, role_id, permission_ids, antes_commit=None):
@@ -694,24 +704,29 @@ class Query:
                        fromDate: date, toDate: date) -> AccountBalance:
         db = info.context["db"]
         actor = leer_actor(db, info)
-        exigir_permiso(db, actor["company_user"].id, "transactions.read")
+        exigir_permisos_balance(db, actor["company_user"].id)
+        # Cuenta inexistente, ID inválido o cuenta de otra empresa: MISMO error.
+        try:
+            id_cuenta = int(accountId)
+        except (TypeError, ValueError):
+            raise Exception("Cuenta no disponible")
         try:
             filas = calcular_balances_por_cuenta(
                 db, int(actor["company_id"]), fromDate, toDate,
-                account_id=int(accountId),
+                account_id=id_cuenta,
             )
         except ValueError as e:
             raise Exception(str(e))
         if not filas:
-            raise Exception("La cuenta no existe o no pertenece a tu empresa")
+            raise Exception("Cuenta no disponible")
         return balance_to_gql(filas[0])
 
     @strawberry.field
-    def generalBalance(self, info: strawberry.Info, fromDate: date, toDate: date) -> CompanyBalance:
+    def generalBalance(self, info: strawberry.Info, fromDate: date, toDate: date) -> GeneralBalance:
         return resolver_balance_general(info, fromDate, toDate)
 
     @strawberry.field
-    def companyBalance(self, info: strawberry.Info, fromDate: date, toDate: date) -> CompanyBalance:
+    def companyBalance(self, info: strawberry.Info, fromDate: date, toDate: date) -> GeneralBalance:
         # Alias de compatibilidad con consultas anteriores a generalBalance.
         return resolver_balance_general(info, fromDate, toDate)
 
