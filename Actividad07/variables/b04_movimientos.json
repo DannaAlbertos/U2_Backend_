@@ -1,0 +1,6 @@
+{
+  "a": { "accountId": "3", "conceptId": "1", "transactionType": "INCOME", "amount": "1.00", "transactionDate": "2026-10-25T23:59:59Z", "shortDescription": "B04 antes del inicio" },
+  "b": { "accountId": "3", "conceptId": "1", "transactionType": "INCOME", "amount": "2.00", "transactionDate": "2026-10-26T00:00:00Z", "shortDescription": "B04 inicio del periodo" },
+  "c": { "accountId": "3", "conceptId": "1", "transactionType": "INCOME", "amount": "4.00", "transactionDate": "2026-10-30T23:59:59Z", "shortDescription": "B04 fin del dia 30" },
+  "d": { "accountId": "3", "conceptId": "1", "transactionType": "INCOME", "amount": "8.00", "transactionDate": "2026-10-31T00:00:00Z", "shortDescription": "B04 medianoche del 31" }
+}
