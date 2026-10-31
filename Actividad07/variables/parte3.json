@@ -1,0 +1,53 @@
+{
+  "_instrucciones": "En GraphiQL copia SOLO el objeto de la operación que ejecutes (sin la clave externa). Los IDs corresponden a una BD recién preparada con preparar_parte3.py; si difieren, usa los que imprime el script.",
+
+  "loginReferencia": {
+    "input": { "email": "parte3.ref@example.com", "password": "Admin123!" }
+  },
+  "loginVacia": {
+    "input": { "email": "parte3.vacia@example.com", "password": "Admin123!" }
+  },
+
+  "balanceGeneralReferencia": {
+    "fromDate": "2026-10-26",
+    "toDate": "2026-10-30"
+  },
+  "balanceGeneralVacia": {
+    "fromDate": "2026-10-01",
+    "toDate": "2026-12-31"
+  },
+  "balanceCuentaVacia": {
+    "accountId": "4",
+    "fromDate": "2026-10-01",
+    "toDate": "2026-12-31"
+  },
+
+  "b06_ingreso010": {
+    "input": { "accountId": "4", "conceptId": "3", "transactionType": "INCOME", "amount": "0.10" }
+  },
+  "b06_ingreso020": {
+    "input": { "accountId": "4", "conceptId": "3", "transactionType": "INCOME", "amount": "0.20" }
+  },
+  "b06_egreso030": {
+    "input": { "accountId": "4", "conceptId": "4", "transactionType": "EXPENSE", "amount": "0.30" }
+  },
+  "rechazo_tres_decimales": {
+    "input": { "accountId": "4", "conceptId": "3", "transactionType": "INCOME", "amount": "10.123" }
+  },
+
+  "b07_ingreso_a_anular": {
+    "input": {
+      "accountId": "1", "conceptId": "1", "transactionType": "INCOME",
+      "amount": "250.00", "transactionDate": "2026-10-27T12:00:00Z",
+      "shortDescription": "B07: movimiento que se anulará"
+    }
+  },
+  "b07_anular": { "id": "ID_DEL_MOVIMIENTO_CREADO" },
+
+  "b08_desactivarCaja": { "id": "2" },
+  "b08_historialCaja": { "accountId": "2" },
+
+  "b15_egreso050": {
+    "input": { "accountId": "4", "conceptId": "4", "transactionType": "EXPENSE", "amount": "50.00" }
+  }
+}
