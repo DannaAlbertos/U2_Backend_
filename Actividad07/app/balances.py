@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from . import models
 from .fechas import limites_periodo_utc
+from .moneda import CERO, esta_en_rojo, moneda
 
 DOS = Decimal("0.01")
 INCOME = models.TransactionTypeEnum.INCOME
@@ -94,15 +95,41 @@ def calcular_balances_por_cuenta(
 def calcular_balance_general(
     db: Session, company_id: int, from_date: date, to_date: date
 ) -> dict:
-    """Totales de la empresa. Sin cuentas (caso B03) devuelve todo en 0.00."""
-    cuentas = calcular_balances_por_cuenta(db, company_id, from_date, to_date)
-    cero = Decimal("0.00")
+    """Consolida el balance de las CUENTAS ACTIVAS de una empresa.
+
+    - Orden determinista por accountId ascendente.
+    - Las cuentas desactivadas (soft-delete) no participan, pero su historial
+      permanece en la BD. Las transacciones anuladas ya las excluye
+      calcular_balances_por_cuenta (T.is_active en el ON del LEFT JOIN).
+    - closingBalance = openingBalance + profit; isInRed se calcula sobre el
+      saldo final (no sobre profit) y accountsInRed cuenta cuentas en rojo.
+    - Sin cuentas (caso B03) devuelve todo en 0.00 y accountsInRed = 0.
+    """
+    por_cuenta = calcular_balances_por_cuenta(db, company_id, from_date, to_date)
+
+    cuentas = sorted(
+        (c for c in por_cuenta if c["isActive"]),
+        key=lambda c: int(c["accountId"]),
+    )
+    for cuenta in cuentas:
+        for campo in ("openingBalance", "income", "expense", "profit", "closingBalance"):
+            cuenta[campo] = moneda(cuenta[campo])
+        cuenta["isInRed"] = esta_en_rojo(cuenta["closingBalance"])
+
+    opening = sum((c["openingBalance"] for c in cuentas), CERO)
+    income = sum((c["income"] for c in cuentas), CERO)
+    expense = sum((c["expense"] for c in cuentas), CERO)
+    profit = income - expense
+    closing = opening + profit
+
     return {
         "companyId": company_id,
-        "openingBalance": sum((c["openingBalance"] for c in cuentas), cero),
-        "income": sum((c["income"] for c in cuentas), cero),
-        "expense": sum((c["expense"] for c in cuentas), cero),
-        "profit": sum((c["profit"] for c in cuentas), cero),
-        "closingBalance": sum((c["closingBalance"] for c in cuentas), cero),
+        "openingBalance": moneda(opening),
+        "income": moneda(income),
+        "expense": moneda(expense),
+        "profit": moneda(profit),
+        "closingBalance": moneda(closing),
+        "isInRed": esta_en_rojo(closing),
+        "accountsInRed": sum(1 for c in cuentas if c["isInRed"]),
         "accounts": cuentas,
     }

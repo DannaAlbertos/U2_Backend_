@@ -16,6 +16,7 @@ from app.fechas import (
     fecha_utc_para_respuesta,
 )
 from app.balances import calcular_balances_por_cuenta, calcular_balance_general
+from app.moneda import validar_monto, esta_en_rojo
 
 
 # --- SEGURIDAD ---
@@ -271,6 +272,7 @@ class CompanyBalance:
     profit: Decimal
     closingBalance: Decimal
     isInRed: bool
+    accountsInRed: int
     accounts: List[AccountBalance]
 
 
@@ -420,7 +422,30 @@ def balance_to_gql(f: dict) -> AccountBalance:
         totalExpense=f["expense"],
         profit=f["profit"],
         closingBalance=f["closingBalance"],
-        isInRed=f["closingBalance"] < 0,
+        isInRed=esta_en_rojo(f["closingBalance"]),
+    )
+
+
+def resolver_balance_general(info, fromDate: date, toDate: date) -> CompanyBalance:
+    """Lógica común de generalBalance y de su alias companyBalance."""
+    db = info.context["db"]
+    actor = leer_actor(db, info)
+    exigir_permiso(db, actor["company_user"].id, "accounts.read")
+    exigir_permiso(db, actor["company_user"].id, "transactions.read")
+    try:
+        r = calcular_balance_general(db, int(actor["company_id"]), fromDate, toDate)
+    except ValueError as e:
+        raise Exception(str(e))
+    return CompanyBalance(
+        companyId=str(r["companyId"]),
+        openingBalance=r["openingBalance"],
+        totalIncome=r["income"],
+        totalExpense=r["expense"],
+        profit=r["profit"],
+        closingBalance=r["closingBalance"],
+        isInRed=r["isInRed"],
+        accountsInRed=r["accountsInRed"],
+        accounts=[balance_to_gql(c) for c in r["accounts"]],
     )
 
 
@@ -682,24 +707,13 @@ class Query:
         return balance_to_gql(filas[0])
 
     @strawberry.field
+    def generalBalance(self, info: strawberry.Info, fromDate: date, toDate: date) -> CompanyBalance:
+        return resolver_balance_general(info, fromDate, toDate)
+
+    @strawberry.field
     def companyBalance(self, info: strawberry.Info, fromDate: date, toDate: date) -> CompanyBalance:
-        db = info.context["db"]
-        actor = leer_actor(db, info)
-        exigir_permiso(db, actor["company_user"].id, "transactions.read")
-        try:
-            r = calcular_balance_general(db, int(actor["company_id"]), fromDate, toDate)
-        except ValueError as e:
-            raise Exception(str(e))
-        return CompanyBalance(
-            companyId=str(r["companyId"]),
-            openingBalance=r["openingBalance"],
-            totalIncome=r["income"],
-            totalExpense=r["expense"],
-            profit=r["profit"],
-            closingBalance=r["closingBalance"],
-            isInRed=r["closingBalance"] < 0,
-            accounts=[balance_to_gql(c) for c in r["accounts"]],
-        )
+        # Alias de compatibilidad con consultas anteriores a generalBalance.
+        return resolver_balance_general(info, fromDate, toDate)
 
 
 # --- MUTATIONS ---
@@ -813,6 +827,20 @@ class Mutation:
         return account_to_gql(db_a)
 
     @strawberry.mutation
+    def deactivateAccount(self, info: strawberry.Info, id: strawberry.ID) -> Account:
+        """Soft-delete de cuenta: se marca inactiva; su historial se conserva."""
+        db = info.context["db"]
+        actor = leer_actor(db, info)
+        exigir_permiso(db, actor["company_user"].id, "accounts.write")
+        cuenta = db.query(models.Account).filter(models.Account.id == id).first()
+        if cuenta is None or int(cuenta.company_id) != int(actor["company_id"]):
+            raise Exception("Cuenta no disponible")
+        cuenta.is_active = False
+        db.commit()
+        db.refresh(cuenta)
+        return account_to_gql(cuenta)
+
+    @strawberry.mutation
     def createConcept(self, info: strawberry.Info, input: CreateConceptInput) -> Concept:
         db = info.context["db"]
         actor = leer_actor(db, info)
@@ -891,8 +919,10 @@ class Mutation:
         if user is None or not user.is_active:
             raise Exception("Usuario inactivo o inexistente")
 
-        if input.amount <= 0:
-            raise Exception("El monto del movimiento debe ser mayor que cero.")
+        try:
+            monto_validado = validar_monto(input.amount)
+        except ValueError as e:
+            raise Exception(str(e))
 
         account = db.query(models.Account).filter(
             models.Account.id == input.accountId, models.Account.is_active == True
@@ -931,7 +961,7 @@ class Mutation:
 
         db_t = models.Transaction(
             account_id=input.accountId, concept_id=input.conceptId,
-            transaction_type=input.transactionType.value, amount=input.amount,
+            transaction_type=input.transactionType.value, amount=monto_validado,
             transaction_date=fecha_operacion,
             captured_at=ahora_utc_naive(),
             captured_by=user.id,
